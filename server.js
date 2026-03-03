@@ -1,42 +1,48 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
+const mongoose = require("mongoose");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
-/* =========================
-   Health Check Route
-========================= */
-app.get("/healthz", (req, res) => {
-  res.status(200).send("OK");
-});
+/* ================================
+   MongoDB Connection
+================================ */
 
-/* =========================
-   Product Search API
-========================= */
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log("MongoDB Connected"))
+.catch(err => console.error("MongoDB Error:", err));
+
+
+/* ================================
+   API Route
+================================ */
+
 app.get("/api/search", async (req, res) => {
   const query = req.query.q || "";
-  const maxPrice = req.query.maxPrice
-    ? parseFloat(req.query.maxPrice)
-    : null;
+  const maxPrice = req.query.maxPrice;
 
   try {
-    // Using dummyjson (Render safe)
-    const response = await axios.get(
-      "https://dummyjson.com/products?limit=100"
-    );
+    const response = await axios.get("https://fakestoreapi.com/products", {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+      }
+    });
 
-    let products = response.data.products;
+    let products = response.data;
 
     // Normalize structure
     products = products.map(p => ({
       name: p.title,
       price: p.price,
-      rating: p.rating || 4,
-      reviews: p.stock || 100
+      rating: p.rating?.rate || 4,
+      reviews: p.rating?.count || 100
     }));
 
     // Search filter
@@ -47,21 +53,18 @@ app.get("/api/search", async (req, res) => {
     }
 
     // Price filter
-    if (maxPrice !== null) {
+    if (maxPrice) {
       products = products.filter(p => p.price <= maxPrice);
     }
 
-    // Value Score Calculation
+    // Value score calculation
     const result = products.map(p => ({
       ...p,
       valueScore:
         (p.rating * Math.log(p.reviews + 1)) / p.price
     }));
 
-    // Sort by best value
-    result.sort((a, b) => b.valueScore - a.valueScore);
-
-    res.json(result);
+    res.json(result.sort((a, b) => b.valueScore - a.valueScore));
 
   } catch (err) {
     console.error("API Error:", err.message);
@@ -69,9 +72,20 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
-/* =========================
-   Server Start
-========================= */
+
+/* ================================
+   Health Check (Render)
+================================ */
+
+app.get("/healthz", (req, res) => {
+  res.send("OK");
+});
+
+
+/* ================================
+   Start Server
+================================ */
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
